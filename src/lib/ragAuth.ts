@@ -1,5 +1,6 @@
 import "server-only";
 
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { apiUnauthorized, apiForbidden } from "./apiResponse";
 import { getEnv } from "./env";
@@ -10,6 +11,8 @@ const env = getEnv();
  *
  * Validates X-API-Key header against ELONGOAT_RAG_API_KEY environment variable.
  * Used for external API access to RAG search endpoints.
+ *
+ * SECURITY: Uses timingSafeEqual to prevent timing attacks on API key comparison.
  */
 // ============================================================================
 // Types
@@ -83,8 +86,22 @@ export function validateRagAuth(request: Request): RagAuthResult {
     };
   }
 
-  // Invalid key
-  if (providedKey !== configuredKey) {
+  // SECURITY: Use timing-safe comparison to prevent timing attacks
+  // Convert strings to buffers for timingSafeEqual
+  const keyBuffer = Buffer.from(configuredKey, "utf8");
+  const providedBuffer = Buffer.from(providedKey, "utf8");
+
+  // Length must match for timing-safe comparison (short-circuit is safe here
+  // as it only leaks length, not content - length is generally observable anyway)
+  if (keyBuffer.length !== providedBuffer.length) {
+    return {
+      authenticated: false,
+      error: apiForbidden("Invalid API key"),
+    };
+  }
+
+  // Constant-time comparison to prevent timing attacks
+  if (!timingSafeEqual(keyBuffer, providedBuffer)) {
     return {
       authenticated: false,
       error: apiForbidden("Invalid API key"),

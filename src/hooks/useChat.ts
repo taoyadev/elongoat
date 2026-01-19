@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getPublicEnv } from "../lib/env";
 import { deriveChatUx } from "../lib/chatUi";
 import { getFollowUpQuestions } from "../lib/chatTopics";
@@ -10,6 +10,8 @@ const SEND_DEBOUNCE_MS = 300;
 const CHAT_STORAGE_KEY = "elongoat_chat_history";
 const CHAT_STORAGE_VERSION = 1;
 const MAX_STORED_MESSAGES = 50;
+const STREAM_TIMEOUT = 60000; // 60 seconds for streaming
+const MAX_RETRY_ATTEMPTS = 2;
 
 export type Role = "user" | "assistant";
 export type ChatItem = {
@@ -173,6 +175,8 @@ export function useChat(pathname: string) {
     [input, streaming, characterLimitReached, lastSendTime],
   );
 
+  const retryCountRef = useRef(0);
+
   const send = useCallback(
     async (text: string, isRetry = false) => {
       const trimmed = text.trim();
@@ -221,6 +225,10 @@ export function useChat(pathname: string) {
           ? `${env.NEXT_PUBLIC_API_URL}/api/chat`
           : "/api/chat";
 
+        // Set up timeout for streaming
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), STREAM_TIMEOUT);
+
         const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -228,7 +236,10 @@ export function useChat(pathname: string) {
             message: trimmed,
             context: { currentPage: getViewportLabel() },
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({}));
@@ -251,9 +262,22 @@ export function useChat(pathname: string) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let lastChunkTime = Date.now();
+
+        // Set up chunk timeout
+        const chunkTimeoutMs = 15000; // 15 seconds without new data
 
         while (true) {
           const { value, done } = await reader.read();
+
+          // Check for data timeout
+          if (Date.now() - lastChunkTime > chunkTimeoutMs) {
+            throw new Error("Stream timeout - no data received");
+          }
+          if (value) {
+            lastChunkTime = Date.now();
+          }
+
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
@@ -292,8 +316,20 @@ export function useChat(pathname: string) {
             }
           }
         }
-      } catch {
-        const errorMsg = "Network error. Please retry.";
+
+        // Reset retry count on success
+        retryCountRef.current = 0;
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error
+            ? err.message.includes("timeout") || err.message.includes("abort")
+              ? "Connection timeout. Please try again."
+              : err.message.includes("NetworkError") ||
+                  err.message.includes("fetch")
+                ? "Network error. Please check your connection."
+                : "Something went wrong. Please try again."
+            : "Network error. Please retry.";
+
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -303,6 +339,20 @@ export function useChat(pathname: string) {
         );
         setNetworkError(errorMsg);
         setRetryMessage(trimmed);
+
+        // Auto-retry on retryable errors
+        const isRetryableError =
+          errorMsg.includes("timeout") ||
+          errorMsg.includes("Network") ||
+          errorMsg.includes("connection");
+
+        if (isRetryableError && retryCountRef.current < MAX_RETRY_ATTEMPTS) {
+          retryCountRef.current++;
+          // Retry after a delay
+          setTimeout(() => {
+            send(text, true);
+          }, 1000 * retryCountRef.current);
+        }
       } finally {
         setStreaming(false);
         if (!isRetryingError && trimmed) {

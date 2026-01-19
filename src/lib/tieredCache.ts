@@ -44,7 +44,13 @@ export interface CacheOptions {
   forceRefresh?: boolean;
   skipL1?: boolean;
   skipL2?: boolean;
+  tags?: string[]; // Tag-based cache invalidation
+  priority?: number; // 0-9, higher = less likely to be evicted
 }
+
+// Tag-based cache tracking
+const tagIndex = new Map<string, Set<string>>(); // tag -> set of keys
+const keyTags = new Map<string, Set<string>>(); // key -> set of tags
 
 // ============================================================================
 // L1: In-Memory Cache with TTL
@@ -55,6 +61,8 @@ interface L1Entry<T> {
   expiresAt: number;
   hits: number;
   lastAccessed: number;
+  priority: number;
+  tags?: Set<string>;
 }
 
 const l1Cache = new Map<string, L1Entry<unknown>>();
@@ -129,14 +137,34 @@ function getL1<T>(key: string): T | null {
 /**
  * Sets data in L1 cache.
  */
-function setL1<T>(key: string, data: T, ttlMs: number): void {
+function setL1<T>(
+  key: string,
+  data: T,
+  ttlMs: number,
+  tags?: string[],
+  priority = 0,
+): void {
   const now = Date.now();
   l1Cache.set(key, {
     data,
     expiresAt: now + Math.min(ttlMs, L1_MAX_TTL_MS),
     hits: 0,
     lastAccessed: now,
+    priority: Math.max(0, Math.min(9, priority)),
+    tags: tags ? new Set(tags) : undefined,
   });
+
+  // Update tag index
+  if (tags && tags.length > 0) {
+    const tagSet = keyTags.get(key) || new Set<string>();
+    for (const tag of tags) {
+      const keys = tagIndex.get(tag) || new Set<string>();
+      keys.add(key);
+      tagIndex.set(tag, keys);
+      tagSet.add(tag);
+    }
+    keyTags.set(key, tagSet);
+  }
 }
 
 /**
@@ -144,6 +172,21 @@ function setL1<T>(key: string, data: T, ttlMs: number): void {
  */
 function deleteL1(key: string): void {
   l1Cache.delete(key);
+
+  // Clean up tag index
+  const tags = keyTags.get(key);
+  if (tags) {
+    for (const tag of tags) {
+      const keys = tagIndex.get(tag);
+      if (keys) {
+        keys.delete(key);
+        if (keys.size === 0) {
+          tagIndex.delete(tag);
+        }
+      }
+    }
+    keyTags.delete(key);
+  }
 }
 
 /**
@@ -151,6 +194,8 @@ function deleteL1(key: string): void {
  */
 function clearL1(): void {
   l1Cache.clear();
+  keyTags.clear();
+  tagIndex.clear();
 }
 
 // ============================================================================
@@ -343,6 +388,8 @@ export async function get<T>(
     forceRefresh = false,
     skipL1 = false,
     skipL2 = false,
+    tags,
+    priority = 0,
   } = options;
 
   // Level 1: In-memory cache
@@ -365,7 +412,7 @@ export async function get<T>(
     const l2Data = await getL2<T>(key);
     if (l2Data !== null) {
       // Promote to L1
-      setL1(key, l2Data, l1Ttl);
+      setL1(key, l2Data, l1Ttl, tags, priority);
       recordStats("l2", true);
       return {
         data: l2Data,
@@ -385,7 +432,7 @@ export async function get<T>(
     await setL2(key, data, l2Ttl);
   }
   if (!skipL1) {
-    setL1(key, data, l1Ttl);
+    setL1(key, data, l1Ttl, tags, priority);
   }
 
   return {
@@ -541,4 +588,92 @@ export function buildKey(
   prefix = "cache",
 ): string {
   return prefix + ":" + parts.join(":");
+}
+
+// ============================================================================
+// Tag-Based Cache Invalidation
+// ============================================================================
+
+/**
+ * Invalidate all cache entries associated with a specific tag.
+ * This is useful for clearing related cache entries when data changes.
+ *
+ * @param tag - The tag to invalidate
+ * @returns Number of entries invalidated
+ */
+export function invalidateByTag(tag: string): number {
+  const keys = tagIndex.get(tag);
+  if (!keys) return 0;
+
+  let count = 0;
+  for (const key of keys) {
+    deleteL1(key);
+    count++;
+  }
+
+  tagIndex.delete(tag);
+  return count;
+}
+
+/**
+ * Invalidate cache entries associated with any of the given tags.
+ *
+ * @param tags - Array of tags to invalidate
+ * @returns Number of entries invalidated
+ */
+export function invalidateByTags(tags: string[]): number {
+  let count = 0;
+  const processedKeys = new Set<string>();
+
+  for (const tag of tags) {
+    const keys = tagIndex.get(tag);
+    if (keys) {
+      for (const key of keys) {
+        if (!processedKeys.has(key)) {
+          deleteL1(key);
+          processedKeys.add(key);
+          count++;
+        }
+      }
+      tagIndex.delete(tag);
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Get all tags associated with a cache key.
+ *
+ * @param key - The cache key
+ * @returns Array of tags or empty array if key not found
+ */
+export function getTagsForKey(key: string): string[] {
+  const tags = keyTags.get(key);
+  return tags ? Array.from(tags) : [];
+}
+
+/**
+ * Get statistics about tag usage.
+ *
+ * @returns Object with tag statistics
+ */
+export function getTagStats(): {
+  totalTags: number;
+  totalTaggedKeys: number;
+  topTags: Array<{ tag: string; count: number }>;
+} {
+  const topTags: Array<{ tag: string; count: number }> = [];
+
+  for (const [tag, keys] of tagIndex.entries()) {
+    topTags.push({ tag, count: keys.size });
+  }
+
+  topTags.sort((a, b) => b.count - a.count);
+
+  return {
+    totalTags: tagIndex.size,
+    totalTaggedKeys: keyTags.size,
+    topTags: topTags.slice(0, 10),
+  };
 }

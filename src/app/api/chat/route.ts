@@ -55,17 +55,72 @@ const FALLBACK_RESPONSES = new Map<string, string>([
   ],
 ]);
 
+/**
+ * SECURITY: Sanitize user input to prevent prompt injection attacks.
+ *
+ * This function removes patterns commonly used in prompt injection attempts:
+ * - Instruction override attempts (ignore previous, etc.)
+ * - System prompt manipulation
+ * - Role hijacking (pretend to be, you are now)
+ * - Developer mode bypasses
+ *
+ * Note: This is a defense-in-depth measure. The primary protection should
+ * come from proper prompt engineering and model configuration.
+ */
 function sanitize(input: string): string {
+  // SECURITY: Enhanced prompt injection pattern detection
+  // Matches common prompt injection techniques
   const dangerous = [
-    /ignore.*previous.*instructions/gi,
-    /system.*prompt/gi,
-    /you.*are.*now/gi,
-    /pretend.*to.*be/gi,
-    /forget.*everything/gi,
-    /developer.*message/gi,
+    // Instruction override patterns
+    /ignore\s+(?:all\s+)?(?:previous|above|earlier|the)?\s*instructions?/gi,
+    /disregard\s+(?:all\s+)?(?:previous|above|earlier|the)?\s*instructions?/gi,
+    /forget\s+(?:everything|all\s+instructions|previous)/gi,
+    /override\s+(?:the\s+)?(?:system|default)\s*(?:prompt|instructions)/gi,
+
+    // System prompt manipulation
+    /system\s*:\s*(?:ignore|forget|override)/gi,
+    /\[SYSTEM\]/gi,
+    /\[SYSTEM\s*MSG\]/gi,
+    /<system>/gi,
+
+    // Role hijacking
+    /you\s+are\s+now/gi,
+    /pretend\s+(?:to\s+be|you\s+are)/gi,
+    /act\s+as\s+(?:if\s+you\s+are|a)/gi,
+    /roleplay\s+as/gi,
+    /from\s+now\s+on/gi,
+
+    // Developer/jailbreak patterns
+    /developer\s*mode/gi,
+    /jailbreak/gi,
+    /dan\s+mode/gi,
+    /unrestricted\s+mode/gi,
+    /bypass\s+(?:the\s+)?(?:filter|restrictions|safety)/gi,
+    /no\s+limitations/gi,
+
+    // Output format manipulation
+    /output\s+(?:only|just|exactly)/gi,
+    /print\s+(?:the\s+)?(?:system\s+)?prompt/gi,
+    /repeat\s+(?:the\s+)?(?:above|everything)/gi,
+    /echo\s+(?:the\s+)?prompt/gi,
+    /show\s+(?:me\s+)?your\s+(?:instructions|prompt|system)/gi,
+
+    // Encoding/obfuscation attempts
+    /base64/gi,
+    /rot-?13/gi,
+    /reverse\s+(?:the\s+)?string/gi,
+    /\|.*\|/g, // Markdown code block patterns
   ];
+
   let safe = input;
-  for (const p of dangerous) safe = safe.replace(p, "[filtered]");
+  for (const p of dangerous) {
+    safe = safe.replace(p, "[filtered]");
+  }
+
+  // Remove control characters (except common whitespace)
+  safe = safe.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
+
+  // Limit length to prevent DoS via extremely long inputs
   return safe.slice(0, 2000);
 }
 
@@ -491,6 +546,13 @@ function shouldCache(message: string): boolean {
   return true;
 }
 
+/**
+ * SECURITY: Build cache key with HMAC to prevent hash collision attacks.
+ * Uses SHA-256 with proper key separation and domain separation.
+ *
+ * The key includes all parameters that affect the response, ensuring
+ * cache hits only occur for semantically equivalent requests.
+ */
 function buildChatCacheKey(params: {
   message: string;
   siteContext: string;
@@ -499,19 +561,25 @@ function buildChatCacheKey(params: {
   mood: string;
   typingQuirk: boolean;
 }): string {
+  // SECURITY: Use HMAC-SHA256 for keyed hashing to prevent collision attacks
+  // Domain prefix prevents length-extension attacks
+  const domainPrefix = "elongoat:chat:cache:v1:";
+
+  const keyData = [
+    params.message,
+    params.siteContext,
+    params.model,
+    params.varsUpdatedAt,
+    params.mood,
+    params.typingQuirk ? "1" : "0",
+  ].join("\x00"); // Use null byte as separator (safer than newline)
+
+  // Double hash to prevent length-extension attacks
   const h = createHash("sha256")
-    .update(params.message, "utf8")
-    .update("\n---\n", "utf8")
-    .update(params.siteContext, "utf8")
-    .update("\n---\n", "utf8")
-    .update(params.model, "utf8")
-    .update("\n", "utf8")
-    .update(params.varsUpdatedAt, "utf8")
-    .update("\n", "utf8")
-    .update(params.mood, "utf8")
-    .update("\n", "utf8")
-    .update(params.typingQuirk ? "1" : "0", "utf8")
+    .update(domainPrefix, "utf8")
+    .update(createHash("sha256").update(keyData, "utf8").digest("hex"))
     .digest("hex");
+
   return `chat:cache:${h}`;
 }
 

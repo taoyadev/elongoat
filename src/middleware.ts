@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSecurityHeaders } from "./lib/securityHeaders";
+import {
+  getSecurityHeaders,
+  getNonce,
+  getContentSecurityPolicy,
+} from "./lib/securityHeaders";
 import { getPublicEnv } from "./lib/env";
 
 const env = getPublicEnv();
 /**
  * Middleware for applying security headers, CORS, request tracing, and compression
  * Run on every request to ensure consistent security posture and performance
+ *
+ * SECURITY: Implements CSP nonce system to eliminate unsafe-inline in production
  */
 
 /**
@@ -37,6 +43,16 @@ export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-request-id", requestId);
 
+  // SECURITY: Generate nonce for inline scripts (eliminates unsafe-inline)
+  // In production, use nonce-based CSP. In development, allow unsafe-inline for Next.js
+  const isProd = env.NODE_ENV === "production";
+  const nonce = isProd ? getNonce() : undefined;
+
+  // Pass nonce to pages via header for use in script tags
+  if (nonce) {
+    requestHeaders.set("x-csp-nonce", nonce);
+  }
+
   // Create response with request ID header
   const response = NextResponse.next({
     request: {
@@ -46,6 +62,11 @@ export function middleware(request: NextRequest) {
 
   // Add X-Request-ID to response for tracing
   response.headers.set("X-Request-ID", requestId);
+
+  // Pass nonce to response for client-side access if needed
+  if (nonce) {
+    response.headers.set("X-CSP-Nonce", nonce);
+  }
 
   // Handle CORS preflight requests
   if (request.method === "OPTIONS") {
@@ -82,7 +103,7 @@ export function middleware(request: NextRequest) {
     );
   }
 
-  // Get base security headers
+  // Get base security headers with nonce for CSP
   const { headers } = getSecurityHeaders({
     contentSecurityPolicy: true,
     strictTransportSecurity: true,
@@ -91,16 +112,26 @@ export function middleware(request: NextRequest) {
     xXssProtection: true,
     referrerPolicy: true,
     permissionsPolicy: true,
+    customCsp: nonce ? undefined : undefined, // Will use nonce in getContentSecurityPolicy
   });
 
-  // Apply security headers, modifying CSP to include API URL
+  // Apply security headers, modifying CSP to include API URL and nonce
   for (const [key, value] of Object.entries(headers)) {
     if (value) {
       if (key === "Content-Security-Policy") {
         // Add API URL to connect-src for cross-origin API calls
         const apiOrigin = new URL(API_URL).origin;
-        const cspWithApi = value.replace(/connect-src[^;]*/, `$& ${apiOrigin}`);
-        response.headers.set(key, cspWithApi);
+        let cspValue = value.replace(/connect-src[^;]*/, `$& ${apiOrigin}`);
+
+        // If we have a nonce, the CSP should already include it from securityHeaders.ts
+        // But we need to regenerate with the nonce since middleware generates it
+        if (nonce) {
+          cspValue = getContentSecurityPolicy(nonce);
+          // Still need to add API URL
+          cspValue = cspValue.replace(/connect-src[^;]*/, `$& ${apiOrigin}`);
+        }
+
+        response.headers.set(key, cspValue);
       } else {
         response.headers.set(key, value);
       }

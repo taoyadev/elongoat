@@ -8,6 +8,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { SiteHeader } from "../components/SiteHeader";
 import { SearchProvider } from "../components/SearchProvider";
 import { SearchModal } from "../components/SearchModal";
+import { ToastProvider } from "../components/Toast";
 import { getPublicEnv } from "../lib/env";
 
 // Lazy load ChatWidget for better initial page load performance
@@ -131,28 +132,36 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-dvh bg-black text-white antialiased`}
       >
-        <SearchProvider>
-          <BackgroundFX />
-          <SiteHeader />
-          <main className="mx-auto w-full max-w-6xl px-4 py-10 md:px-6">
-            {children}
-          </main>
-          <footer className="mx-auto w-full max-w-6xl px-4 pb-10 text-xs text-white/50 md:px-6">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-white/70">
-                Disclaimer: This is an AI simulation built for information and
-                entertainment. Not affiliated with Elon Musk or his companies.
+        <a href="#main-content" className="skip-to-main">
+          Skip to main content
+        </a>
+        <ToastProvider>
+          <SearchProvider>
+            <BackgroundFX />
+            <SiteHeader />
+            <main
+              id="main-content"
+              className="mx-auto w-full max-w-6xl px-4 py-10 md:px-6"
+            >
+              {children}
+            </main>
+            <footer className="mx-auto w-full max-w-6xl px-4 pb-10 text-xs text-white/50 md:px-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-white/70">
+                  Disclaimer: This is an AI simulation built for information and
+                  entertainment. Not affiliated with Elon Musk or his companies.
+                </div>
+                <div className="mt-1">
+                  © ElonGoat • Built on Next.js • Streaming chat in the corner
+                </div>
               </div>
-              <div className="mt-1">
-                © ElonGoat • Built on Next.js • Streaming chat in the corner
-              </div>
-            </div>
-          </footer>
-          <ErrorBoundary>
-            <ChatWidget />
-          </ErrorBoundary>
-          <SearchModal />
-        </SearchProvider>
+            </footer>
+            <ErrorBoundary>
+              <ChatWidget />
+            </ErrorBoundary>
+            <SearchModal />
+          </SearchProvider>
+        </ToastProvider>
       </body>
     </html>
   );

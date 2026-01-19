@@ -86,9 +86,10 @@ export async function initDbPool(): Promise<Pool> {
   });
 
   // Set up connection timeout handler
+  // SECURITY: Use parameterized query to prevent SQL injection
   pool.on("connect", (client) => {
     client
-      .query("SET statement_timeout = " + config.statement_timeout)
+      .query("SET statement_timeout = $1", [config.statement_timeout])
       .catch((e) => console.error("[DB] Failed to set statement_timeout", e));
   });
 
@@ -225,9 +226,10 @@ export function getDbPoolLegacy(): Pool | null {
   });
 
   // Set up connection timeout handler
+  // SECURITY: Use parameterized query to prevent SQL injection
   pool.on("connect", (client) => {
     client
-      .query("SET statement_timeout = " + config.statement_timeout)
+      .query("SET statement_timeout = $1", [config.statement_timeout])
       .catch((e) => console.error("[DB] Failed to set statement_timeout", e));
   });
 
@@ -333,6 +335,9 @@ if (env.NODE_ENV === "production") {
  * Executes a function within a database transaction.
  * Returns null if no database pool is available.
  *
+ * SECURITY: Preserves original error even if ROLLBACK fails.
+ * If both fn(client) and ROLLBACK throw, the original error is re-thrown.
+ *
  * @param fn - Function to execute within the transaction
  * @returns The result of the function, or null if no database
  */
@@ -344,14 +349,23 @@ export async function withTransaction<T>(
 
   const client = await db.connect();
 
+  let originalError: unknown = null;
   try {
     await client.query("BEGIN");
     const result = await fn(client);
     await client.query("COMMIT");
     return result;
   } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
+    // Store original error before attempting rollback
+    originalError = err;
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackErr) {
+      // Log rollback error but preserve original error
+      console.error("[DB] ROLLBACK failed:", rollbackErr);
+    }
+    // Re-throw the original error, not any rollback error
+    throw originalError;
   } finally {
     client.release();
   }

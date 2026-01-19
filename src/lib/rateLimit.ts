@@ -122,12 +122,23 @@ return {count, ttl}
 `;
 
 // In-memory fallback state
+//
+// SECURITY WARNING: In-memory rate limiting is NOT distributed.
+// When using multiple server instances (horizontal scaling), each instance
+// maintains its own counter, allowing requests to bypass limits by targeting
+// different instances.
+//
+// Always use Redis-backed rate limiting in production environments with
+// multiple instances.
 type InMemoryState = {
   requests: number[]; // Timestamps
   windowStart: number;
   resetAt: number;
 };
 const memoryState = new Map<string, InMemoryState>();
+
+// Track if we've warned about in-memory fallback
+let memoryFallbackWarned = false;
 
 /**
  * Clean up expired in-memory entries (run periodically)
@@ -240,7 +251,15 @@ async function redisRateLimit(
     };
   } catch (error) {
     // Redis error - fall back to in-memory
-    if (env.NODE_ENV === "development") {
+    // SECURITY: Log warning about in-memory fallback in production
+    if (env.NODE_ENV === "production" && !memoryFallbackWarned) {
+      console.warn(
+        "[RateLimit] Redis unavailable, using in-memory rate limiting. " +
+          "This is NOT secure in multi-instance deployments. " +
+          "Check Redis connection.",
+      );
+      memoryFallbackWarned = true;
+    } else if (env.NODE_ENV === "development") {
       console.error("[RateLimit] Redis error, falling back to memory:", error);
     }
     return memoryRateLimit(identifier, limit, windowSeconds);

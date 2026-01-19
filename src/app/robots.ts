@@ -30,13 +30,25 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ["/"],
         crawlDelay: 10,
       },
-      // Allow research-focused AI crawlers selectively with rate limiting
-      // These may provide citation/attribution benefits
       {
-        userAgent: ["anthropic-ai", "Claude-Web", "Claude-Search"],
-        allow: ["/topics", "/q", "/facts"],
-        disallow: ["/admin", "/api/", "/x", "/videos"],
-        crawlDelay: 5,
+        userAgent: "anthropic-ai",
+        disallow: ["/"],
+        crawlDelay: 10,
+      },
+      {
+        userAgent: "Claude-Web",
+        disallow: ["/"],
+        crawlDelay: 10,
+      },
+      {
+        userAgent: "Claude-Search",
+        disallow: ["/"],
+        crawlDelay: 10,
+      },
+      {
+        userAgent: "PerplexityBot",
+        disallow: ["/"],
+        crawlDelay: 10,
       },
       // Google-specific directives (no crawlDelay for Googlebot)
       {

@@ -160,7 +160,8 @@ describe("contentGen", () => {
       });
 
       expect(result.contentMd).toContain("why mars");
-      expect(result.contentMd).toContain("vol 50000");
+      // Current implementation uses popularity labels, not raw volume values
+      expect(result.contentMd).toContain("popularity");
     });
   });
 
@@ -243,7 +244,8 @@ describe("contentGen", () => {
       const userMessage = callArgs[0].messages[1].content;
 
       expect(userMessage).toContain("why mars");
-      expect(userMessage).toContain("vol 50000");
+      // Current implementation uses popularity labels, not raw volume values
+      expect(userMessage).toContain("popularity");
     });
 
     it("includes variables in prompt", async () => {

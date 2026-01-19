@@ -1,34 +1,65 @@
 services:
   elongoat:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+      cache_from:
+        - elongoat-backend:latest
+      labels:
+        - "com.elongoat.description=ElonGoat Backend API"
+        - "com.elongoat.version=${VERSION:-0.1.0}"
+    image: elongoat-backend:${VERSION:-latest}
     container_name: standalone-elongoat
     restart: unless-stopped
-    # Default to json-file for local builds; switch to awslogs by setting
-    # LOG_DRIVER=awslogs and providing AWS credentials/region variables.
+
+    # Logging configuration with rotation
     logging:
       driver: ${LOG_DRIVER:-json-file}
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+        tag: "{{.Name}}/{{.ID}}"
+
     # Resource limits for production stability
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 1024M
+          cpus: "${CPU_LIMIT:-2.0}"
+          memory: ${MEMORY_LIMIT:-1024M}
         reservations:
-          cpus: "0.5"
-          memory: 256M
+          cpus: "${CPU_RESERVATION:-0.5}"
+          memory: ${MEMORY_RESERVATION:-256M}
+
     # Memory limits (Docker Compose v2 compatibility)
-    mem_limit: 1024m
-    memswap_limit: 1536m
-    cpus: 2.0
+    mem_limit: ${MEMORY_LIMIT:-1024m}
+    memswap_limit: ${MEMORY_SWAP_LIMIT:-1536m}
+    cpus: ${CPU_LIMIT:-2.0}
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: ${READ_ONLY:-false}
+    tmpfs:
+      - /tmp
+
+    # Environment variables
     environment:
+      # Runtime
       - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - TZ=${TZ:-UTC}
+
       # Nginx-proxy auto-discovery for backend API
       - VIRTUAL_HOST=${API_DOMAIN:-api.elongoat.io}
       - LETSENCRYPT_HOST=${API_DOMAIN:-api.elongoat.io}
       - VIRTUAL_PORT=3000
+
+      # Public URLs
       - NEXT_PUBLIC_SITE_URL=https://${SITE_DOMAIN:-elongoat.io}
       - NEXT_PUBLIC_API_URL=https://${API_DOMAIN:-api.elongoat.io}
 
@@ -40,6 +71,7 @@ services:
 
       # Database / cache
       - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SCHEMA=${DATABASE_URL_SCHEMA:-elongoat}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
 
       # Dynamic variables
@@ -62,20 +94,51 @@ services:
       # Rate limiting security (HMAC secret for IP hashing)
       - RATE_LIMIT_IP_SECRET=${RATE_LIMIT_IP_SECRET}
 
-      # X monitor (optional; determines primary handle displayed on /x)
+      # X monitor (optional)
       - X_HANDLES=${X_HANDLES:-elonmusk}
 
-      # Cache warmup on startup (delay in seconds)
+      # Cache warmup on startup
       - WARMUP_DELAY_MS=${WARMUP_DELAY_MS:-10}
       - SKIP_WARMUP=${SKIP_WARMUP:-0}
       - VALIDATE_ENV_ON_STARTUP=${VALIDATE_ENV_ON_STARTUP:-0}
       - LOG_LEVEL=${LOG_LEVEL:-info}
 
+      # Performance tuning
+      - NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=768}
+      - PGPOOL_MAX=${PGPOOL_MAX:-10}
+      - PG_STATEMENT_TIMEOUT_MS=${PG_STATEMENT_TIMEOUT_MS:-60000}
+
+      # Monitoring
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+
+    # Health check override
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+        ]
+      interval: ${HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+      start_period: ${HEALTHCHECK_START_PERIOD:-60s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
+
+    # Volume mounts
     volumes:
       - ./data:/app/data:ro
+      - ${CACHE_MOUNT_PATH:-/tmp/elongoat-cache}:/app/.next/cache
+
     # No host port binding - nginx-proxy handles external access via VIRTUAL_HOST
     expose:
       - "3000"
+
+    # Labels for service discovery
+    labels:
+      - "com.elongoat.service=backend"
+      - "com.elongoat.managed=true"
+
     networks:
       - internal
       - proxy-tier
@@ -84,6 +147,8 @@ services:
 
 networks:
   internal:
+    driver: bridge
+    internal: true
   proxy-tier:
     external: true
     name: nginx-proxy_default

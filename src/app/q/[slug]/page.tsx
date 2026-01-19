@@ -11,6 +11,7 @@ import { RelatedContent } from "../../../components/RelatedContent";
 import { RelatedTweets } from "../../../components/RelatedTweets";
 import { SeeAlso } from "../../../components/SeeAlso";
 import { AuthorInfo } from "../../../components/AuthorInfo";
+import { TableOfContents } from "../../../components/TableOfContents";
 import { getPaaAnswerContent } from "../../../lib/contentGen";
 import { getCustomQa } from "../../../lib/customQa";
 import {
@@ -330,8 +331,13 @@ export default async function QuestionPage({
               {ai.cached ? " • cached" : ""}
             </div>
           </div>
-          <div className="mt-4">
-            <Markdown content={ai.contentMd} />
+          <div className="mt-4 grid gap-6 lg:grid-cols-[1fr,280px]">
+            <div className="prose prose-invert prose-sm max-w-none">
+              <Markdown content={ai.contentMd} />
+            </div>
+            <aside className="hidden lg:block">
+              <TableOfContents contentSelector=".prose" minItems={3} />
+            </aside>
           </div>
         </section>
 

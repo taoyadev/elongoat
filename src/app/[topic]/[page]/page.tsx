@@ -24,6 +24,7 @@ import { SeeAlso } from "../../../components/SeeAlso";
 import { AuthorInfo } from "../../../components/AuthorInfo";
 import { SerpInsightsServer } from "../../../components/SerpInsights";
 import { ErrorBoundary } from "../../../components/ErrorBoundary";
+import { TableOfContents } from "../../../components/TableOfContents";
 import { getClusterPageContent } from "../../../lib/contentGen";
 import {
   findPage,
@@ -444,8 +445,13 @@ export default async function ClusterPage({
               {ai.cached && " • cached"}
             </div>
           </div>
-          <div className="prose prose-invert prose-sm max-w-none">
-            <Markdown content={ai.contentMd} />
+          <div className="grid gap-6 lg:grid-cols-[1fr,280px]">
+            <div className="prose prose-invert prose-sm max-w-none">
+              <Markdown content={ai.contentMd} />
+            </div>
+            <aside className="hidden lg:block">
+              <TableOfContents contentSelector=".prose" minItems={3} />
+            </aside>
           </div>
         </section>
 

@@ -145,11 +145,13 @@ export function hashToken(token: string): string {
 
 /**
  * Create a new admin session
+ * SECURITY: Returns csrfToken for server-side use only (not exposed to client)
  */
 export async function createAdminSession(): Promise<{
   success: boolean;
   error?: string;
   cookieHeader?: string;
+  csrfToken?: string; // For server-side injection only, never sent to client
 }> {
   const adminToken = env.ELONGOAT_ADMIN_TOKEN;
   if (!adminToken) {
@@ -180,20 +182,25 @@ export async function createAdminSession(): Promise<{
     path: ADMIN_COOKIE_PATH,
   });
 
-  // Set CSRF token (accessible to client for XHR requests)
+  // SECURITY: CSRF token stored in httpOnly cookie to prevent XSS access
+  // Client-side code should NOT read the CSRF token directly
+  // Instead, use SameSite cookies and double-submit pattern via headers
+  // For API requests, the CSRF token is validated from the session cookie itself
+  // The X-Admin-CSRF header is used as a secondary verification (nonce-like pattern)
   const csrfCookieHeader = buildSetCookieHeader({
     name: ADMIN_CSRF_COOKIE_NAME,
     value: csrfToken,
     maxAge: CSRF_EXPIRY_SECONDS,
-    httpOnly: false,
+    httpOnly: true, // SECURITY: Changed to httpOnly to prevent XSS token theft
     secure: isProduction(),
-    sameSite: "lax",
+    sameSite: "strict", // SECURITY: Changed to strict for better CSRF protection
     path: ADMIN_COOKIE_PATH,
   });
 
   return {
     success: true,
     cookieHeader: `${cookieHeader}, ${csrfCookieHeader}`,
+    csrfToken, // Return to server-side rendering only, NOT exposed to client
   };
 }
 
@@ -275,13 +282,14 @@ export function clearAdminSession(): string {
       sameSite: "lax",
       path: ADMIN_COOKIE_PATH,
     }),
+    // SECURITY: Clear CSRF cookie with httpOnly=true to match set behavior
     buildSetCookieHeader({
       name: ADMIN_CSRF_COOKIE_NAME,
       value: "",
       maxAge: 0,
-      httpOnly: false,
+      httpOnly: true,
       secure: isProduction(),
-      sameSite: "lax",
+      sameSite: "strict",
       path: ADMIN_COOKIE_PATH,
     }),
   ];
