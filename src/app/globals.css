@@ -2,6 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+ * Core Web Vitals Optimizations
+ * ============================================================================ */
+
+/* Prevent CLS (Cumulative Layout Shift) */
+img,
+video,
+iframe {
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: attr(width) / attr(height);
+}
+
+/* Reserve space for common elements to prevent layout shift */
+.aspect-video {
+  aspect-ratio: 16 / 9;
+}
+
+.aspect-square {
+  aspect-ratio: 1 / 1;
+}
+
+.aspect-og {
+  aspect-ratio: 1200 / 630;
+}
+
+/* Optimize font rendering */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prevent FOUT (Flash of Unstyled Text) */
+.font-loading body {
+  visibility: hidden;
+}
+
+.fonts-loaded body {
+  visibility: visible;
+}
+
 :root {
   --background: 0 0% 0%;
   --foreground: 0 0% 100%;

@@ -101,7 +101,7 @@ validate_env() {
             log_error "Missing required variable: $var"
             errors=$((errors + 1))
         fi
-    fi
+    done
 
     # Check for placeholder/default values
     local placeholder_patterns=(

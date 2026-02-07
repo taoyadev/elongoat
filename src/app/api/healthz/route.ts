@@ -18,6 +18,10 @@ import { NextResponse } from "next/server";
 import { rateLimitHealth, rateLimitResponse } from "../../../lib/rateLimit";
 import { dynamicExport } from "../../../lib/apiExport";
 
+const SERVICE_NAME = "elongoat";
+const APP_VERSION =
+  process.env.APP_VERSION ?? process.env.npm_package_version ?? undefined;
+
 export const dynamic = dynamicExport("force-dynamic");
 
 export async function GET(request: Request) {
@@ -29,7 +33,10 @@ export async function GET(request: Request) {
 
   return NextResponse.json(
     {
+      service: SERVICE_NAME,
       status: "alive",
+      version: APP_VERSION,
+      buildTarget: process.env.NEXT_BUILD_TARGET ?? "unknown",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
     },
@@ -49,6 +56,9 @@ export async function HEAD(request: Request) {
 
   return new NextResponse(null, {
     status: 200,
-    headers: rlHeaders as unknown as HeadersInit,
+    headers: {
+      ...((rlHeaders as unknown as HeadersInit) ?? {}),
+      "X-ElonGoat-Service": SERVICE_NAME,
+    },
   });
 }

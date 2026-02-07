@@ -8,8 +8,13 @@ const SITE_URL = getSiteConfig().url;
 const BASE_CONTEXT = "https://schema.org";
 
 /**
- * Generate WebSite schema
- * Describes the overall website
+ * Current year for freshness signals
+ */
+const CURRENT_YEAR = new Date().getFullYear();
+
+/**
+ * Generate WebSite schema with enhanced SearchAction
+ * Describes the overall website with sitelinks search box potential
  */
 export function generateWebSiteSchema() {
   return {
@@ -26,18 +31,26 @@ export function generateWebSiteSchema() {
       name: getSiteConfig().name,
       url: SITE_URL,
     },
-    potentialAction: {
-      "@type": "SearchAction",
-      target: {
-        "@type": "EntryPoint",
-        urlTemplate: `${SITE_URL}/search?q={search_term_string}`,
+    potentialAction: [
+      {
+        "@type": "SearchAction",
+        target: {
+          "@type": "EntryPoint",
+          urlTemplate: `${SITE_URL}/search?q={search_term_string}`,
+        },
+        "query-input": {
+          "@type": "PropertyValueSpecification",
+          valueRequired: true,
+          valueName: "search_term_string",
+        },
       },
-      "query-input": {
-        "@type": "PropertyValueSpecification",
-        valueRequired: true,
-        valueName: "search_term_string",
+      {
+        "@type": "ReadAction",
+        target: `${SITE_URL}/topics`,
       },
-    },
+    ],
+    copyrightYear: CURRENT_YEAR,
+    dateModified: new Date().toISOString(),
   };
 }
 
@@ -1012,4 +1025,244 @@ export function isHowToContent(markdown: string, title: string): boolean {
   const combinedText = `${title} ${markdown.slice(0, 1000)}`;
 
   return howToIndicators.some((pattern) => pattern.test(combinedText));
+}
+
+/**
+ * Generate NewsArticle schema for timely content
+ * Better for content that has news value
+ */
+export function generateNewsArticleSchema(params: {
+  headline: string;
+  description: string;
+  url: string;
+  datePublished: string;
+  dateModified?: string;
+  imageUrl?: string;
+  keywords?: string[];
+}) {
+  const {
+    headline,
+    description,
+    url,
+    datePublished,
+    dateModified,
+    imageUrl,
+    keywords,
+  } = params;
+
+  return {
+    "@context": BASE_CONTEXT,
+    "@type": "NewsArticle",
+    "@id": `${SITE_URL}${url}#newsarticle`,
+    headline: headline.slice(0, 110),
+    description: description.slice(0, 200),
+    url: `${SITE_URL}${url}`,
+    datePublished,
+    dateModified: dateModified ?? datePublished,
+    author: {
+      "@type": "Organization",
+      name: getSiteConfig().name,
+      url: SITE_URL,
+    },
+    publisher: {
+      "@type": "Organization",
+      "@id": `${SITE_URL}/#organization`,
+      name: getSiteConfig().name,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/logo.svg`,
+        width: 600,
+        height: 60,
+      },
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${SITE_URL}${url}`,
+    },
+    ...(imageUrl && {
+      image: {
+        "@type": "ImageObject",
+        url: imageUrl.startsWith("http") ? imageUrl : `${SITE_URL}${imageUrl}`,
+        width: 1200,
+        height: 630,
+      },
+    }),
+    ...(keywords && { keywords: keywords.join(", ") }),
+    inLanguage: "en-US",
+    isAccessibleForFree: true,
+  };
+}
+
+/**
+ * Generate Dataset schema for data-rich pages
+ * Useful for pages with statistics or data tables
+ */
+export function generateDatasetSchema(params: {
+  name: string;
+  description: string;
+  url: string;
+  dateModified?: string;
+  keywords?: string[];
+  variableMeasured?: string[];
+  temporalCoverage?: string;
+}) {
+  const {
+    name,
+    description,
+    url,
+    dateModified,
+    keywords,
+    variableMeasured,
+    temporalCoverage,
+  } = params;
+
+  return {
+    "@context": BASE_CONTEXT,
+    "@type": "Dataset",
+    name,
+    description: description.slice(0, 500),
+    url: `${SITE_URL}${url}`,
+    creator: {
+      "@type": "Organization",
+      name: getSiteConfig().name,
+      url: SITE_URL,
+    },
+    ...(dateModified && { dateModified }),
+    ...(keywords && { keywords: keywords.join(", ") }),
+    ...(variableMeasured && {
+      variableMeasured: variableMeasured.map((v) => ({
+        "@type": "PropertyValue",
+        name: v,
+      })),
+    }),
+    ...(temporalCoverage && { temporalCoverage }),
+    license: "https://creativecommons.org/licenses/by-nc/4.0/",
+    isAccessibleForFree: true,
+  };
+}
+
+/**
+ * Generate DefinedTerm schema for glossary/definition pages
+ * Helps with featured snippets for "what is" queries
+ */
+export function generateDefinedTermSchema(params: {
+  term: string;
+  definition: string;
+  url: string;
+  relatedTerms?: string[];
+}) {
+  const { term, definition, url, relatedTerms } = params;
+
+  return {
+    "@context": BASE_CONTEXT,
+    "@type": "DefinedTerm",
+    name: term,
+    description: definition.slice(0, 500),
+    url: `${SITE_URL}${url}`,
+    inDefinedTermSet: {
+      "@type": "DefinedTermSet",
+      name: "ElonGoat Knowledge Base",
+      url: `${SITE_URL}/topics`,
+    },
+    ...(relatedTerms && {
+      sameAs: relatedTerms.map((t) => `${SITE_URL}/q/${t}`),
+    }),
+  };
+}
+
+/**
+ * Generate ClaimReview schema for fact-check style content
+ * Useful for Q&A pages that verify claims
+ */
+export function generateClaimReviewSchema(params: {
+  claim: string;
+  url: string;
+  rating: "True" | "Mostly True" | "Mixed" | "Mostly False" | "False";
+  reviewBody: string;
+  datePublished?: string;
+}) {
+  const { claim, url, rating, reviewBody, datePublished } = params;
+
+  const ratingValue: Record<string, number> = {
+    True: 5,
+    "Mostly True": 4,
+    Mixed: 3,
+    "Mostly False": 2,
+    False: 1,
+  };
+
+  return {
+    "@context": BASE_CONTEXT,
+    "@type": "ClaimReview",
+    url: `${SITE_URL}${url}`,
+    claimReviewed: claim,
+    author: {
+      "@type": "Organization",
+      name: getSiteConfig().name,
+      url: SITE_URL,
+    },
+    reviewRating: {
+      "@type": "Rating",
+      ratingValue: ratingValue[rating],
+      bestRating: 5,
+      worstRating: 1,
+      alternateName: rating,
+    },
+    itemReviewed: {
+      "@type": "Claim",
+      author: {
+        "@type": "Person",
+        name: "Various Sources",
+      },
+    },
+    reviewBody: reviewBody.slice(0, 500),
+    ...(datePublished && { datePublished }),
+  };
+}
+
+/**
+ * Generate comprehensive page schema combining multiple types
+ * Use this for important landing pages
+ */
+export function generateComprehensivePageSchema(params: {
+  title: string;
+  description: string;
+  url: string;
+  type: "topic" | "article" | "qa" | "video" | "fact";
+  dateModified?: string;
+  keywords?: string[];
+  breadcrumbs?: BreadcrumbItem[];
+}) {
+  const { title, description, url, type, dateModified, keywords, breadcrumbs } =
+    params;
+
+  const schemas: Record<string, unknown>[] = [
+    generateWebPageSchema({
+      title,
+      description,
+      url,
+      dateModified,
+      breadcrumbs,
+    }),
+  ];
+
+  // Add type-specific schema
+  if (type === "article" || type === "topic") {
+    schemas.push(
+      generateArticleSchema({
+        title,
+        description,
+        url,
+        updatedAt: dateModified,
+        keywords,
+      }),
+    );
+  }
+
+  // Add breadcrumb schema if provided
+  if (breadcrumbs && breadcrumbs.length > 0) {
+    schemas.push(generateBreadcrumbSchema(breadcrumbs));
+  }
+
+  return schemas;
 }

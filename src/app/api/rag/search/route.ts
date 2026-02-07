@@ -242,10 +242,15 @@ export async function POST(request: Request) {
 
 // Handle OPTIONS for CORS
 export async function OPTIONS() {
+  const allowedOrigins = [
+    "https://elongoat.io",
+    process.env.NEXT_PUBLIC_SITE_URL,
+  ].filter(Boolean);
+
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": allowedOrigins[0] || "https://elongoat.io",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
       "Access-Control-Max-Age": "86400",

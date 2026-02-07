@@ -8,19 +8,21 @@
 
 /**
  * Detects if the current build is a static export.
- * Static export happens during:
- * - next build with output: "export"
- * - Phase: "phase-export" or "phase-production-build"
- * - Production build without DATABASE_URL (frontend-only)
+ *
+ * IMPORTANT:
+ * - `NEXT_PHASE` contains "build" for *all* `next build` runs (including
+ *   backend/standalone builds). Treating that as "static export" will cause
+ *   API routes to be marked `force-static` and executed at build time.
+ * - In this repo we explicitly set `NEXT_BUILD_TARGET=export` for the
+ *   Cloudflare Pages static export flow.
  */
 export function isStaticExport(): boolean {
-  if (process.env.NEXT_PHASE === "phase-export") return true;
-  if (process.env.NEXT_PHASE?.includes("build")) return true;
-  // Production without database indicates frontend-only build
-  if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL) {
-    return true;
+  if (process.env.NEXT_BUILD_TARGET) {
+    return process.env.NEXT_BUILD_TARGET === "export";
   }
-  return false;
+
+  // Fallback (mainly for running `next export` directly).
+  return process.env.NEXT_PHASE === "phase-export";
 }
 
 /**

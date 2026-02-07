@@ -46,6 +46,8 @@ export interface CacheOptions {
   skipL2?: boolean;
   tags?: string[]; // Tag-based cache invalidation
   priority?: number; // 0-9, higher = less likely to be evicted
+  staleWhileRevalidate?: boolean; // Return stale data while refreshing in background
+  staleTtl?: number; // How long stale data is acceptable (ms)
 }
 
 // Tag-based cache tracking
@@ -59,6 +61,7 @@ const keyTags = new Map<string, Set<string>>(); // key -> set of tags
 interface L1Entry<T> {
   data: T;
   expiresAt: number;
+  staleAt?: number; // When data becomes stale (for SWR)
   hits: number;
   lastAccessed: number;
   priority: number;
@@ -73,6 +76,15 @@ const l1PendingPromises = new Map<string, Promise<unknown>>();
  */
 function isL1Expired(entry: L1Entry<unknown>): boolean {
   return Date.now() > entry.expiresAt;
+}
+
+/**
+ * Checks if an L1 entry is stale but still usable for SWR.
+ */
+function isL1Stale(entry: L1Entry<unknown>): boolean {
+  if (!entry.staleAt) return false;
+  const now = Date.now();
+  return now > entry.staleAt && now <= entry.expiresAt;
 }
 
 /**
@@ -143,11 +155,14 @@ function setL1<T>(
   ttlMs: number,
   tags?: string[],
   priority = 0,
+  staleTtl?: number,
 ): void {
   const now = Date.now();
+  const effectiveTtl = Math.min(ttlMs, L1_MAX_TTL_MS);
   l1Cache.set(key, {
     data,
-    expiresAt: now + Math.min(ttlMs, L1_MAX_TTL_MS),
+    expiresAt: now + effectiveTtl,
+    staleAt: staleTtl ? now + staleTtl : undefined,
     hits: 0,
     lastAccessed: now,
     priority: Math.max(0, Math.min(9, priority)),
@@ -390,12 +405,37 @@ export async function get<T>(
     skipL2 = false,
     tags,
     priority = 0,
+    staleWhileRevalidate = false,
+    staleTtl,
   } = options;
 
   // Level 1: In-memory cache
   if (!skipL1 && !forceRefresh) {
     const l1Data = getL1<T>(key);
     if (l1Data !== null) {
+      const entry = l1Cache.get(key) as L1Entry<T> | undefined;
+
+      // Check for stale-while-revalidate
+      if (staleWhileRevalidate && entry && isL1Stale(entry)) {
+        // Return stale data immediately, refresh in background
+        recordStats("l1", true);
+        void (async () => {
+          try {
+            const freshData = await withStampedeProtection(key, fetchFn);
+            if (!skipL2) await setL2(key, freshData, l2Ttl);
+            setL1(key, freshData, l1Ttl, tags, priority, staleTtl);
+          } catch {
+            // Silently fail background refresh
+          }
+        })();
+        return {
+          data: l1Data,
+          level: "l1",
+          hit: true,
+          latency: Math.round(performance.now() - startTime),
+        };
+      }
+
       recordStats("l1", true);
       return {
         data: l1Data,
@@ -412,7 +452,7 @@ export async function get<T>(
     const l2Data = await getL2<T>(key);
     if (l2Data !== null) {
       // Promote to L1
-      setL1(key, l2Data, l1Ttl, tags, priority);
+      setL1(key, l2Data, l1Ttl, tags, priority, staleTtl);
       recordStats("l2", true);
       return {
         data: l2Data,
@@ -432,7 +472,7 @@ export async function get<T>(
     await setL2(key, data, l2Ttl);
   }
   if (!skipL1) {
-    setL1(key, data, l1Ttl, tags, priority);
+    setL1(key, data, l1Ttl, tags, priority, staleTtl);
   }
 
   return {
@@ -676,4 +716,85 @@ export function getTagStats(): {
     totalTaggedKeys: keyTags.size,
     topTags: topTags.slice(0, 10),
   };
+}
+
+// ============================================================================
+// L2 Tag-Based Cache Invalidation
+// ============================================================================
+
+/**
+ * Invalidate L2 cache entries by tag using Redis Sets.
+ * Tags are stored as Redis Sets: cache:tag:{tagName} -> Set of cache keys
+ *
+ * @param tag - The tag to invalidate
+ * @returns Number of entries invalidated
+ */
+export async function invalidateByTagL2(tag: string): Promise<number> {
+  const redis = await getConnectedRedisFromPool();
+  if (!redis) return 0;
+
+  try {
+    const tagKey = `cache:tag:${tag}`;
+    const keys = await redis.smembers(tagKey);
+
+    if (keys.length === 0) return 0;
+
+    // Delete all cache keys and the tag set
+    await redis.del(...keys, tagKey);
+    return keys.length;
+  } catch (error) {
+    if (env.NODE_ENV === "development") {
+      console.error("[TieredCache] L2 tag invalidation error:", error);
+    }
+    return 0;
+  }
+}
+
+/**
+ * Invalidate both L1 and L2 cache entries by tag.
+ *
+ * @param tag - The tag to invalidate
+ * @returns Object with L1 and L2 invalidation counts
+ */
+export async function invalidateByTagAll(
+  tag: string,
+): Promise<{ l1: number; l2: number }> {
+  const l1Count = invalidateByTag(tag);
+  const l2Count = await invalidateByTagL2(tag);
+  return { l1: l1Count, l2: l2Count };
+}
+
+/**
+ * Register a cache key with tags in L2 (Redis).
+ * Call this after setting a value in L2 cache.
+ *
+ * @param key - The cache key
+ * @param tags - Array of tags to associate
+ * @param ttl - TTL in seconds for the tag set (should match cache TTL)
+ */
+export async function registerL2Tags(
+  key: string,
+  tags: string[],
+  ttl: number,
+): Promise<void> {
+  if (tags.length === 0) return;
+
+  const redis = await getConnectedRedisFromPool();
+  if (!redis) return;
+
+  try {
+    const pipeline = redis.pipeline();
+
+    for (const tag of tags) {
+      const tagKey = `cache:tag:${tag}`;
+      pipeline.sadd(tagKey, key);
+      pipeline.expire(tagKey, ttl);
+    }
+
+    await pipeline.exec();
+  } catch (error) {
+    if (env.NODE_ENV === "development") {
+      console.error("[TieredCache] L2 tag registration error:", error);
+    }
+  }
 }

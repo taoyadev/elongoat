@@ -28,20 +28,23 @@
     "predev": "npm run generate:indexes",
     "prebuild": "npm run generate:indexes",
     "dev": "next dev",
-    "build": "NEXT_BUILD_TARGET=export next build",
+    "build": "npm run build:backend",
     "build:frontend": "node scripts/build_export.mjs",
     "build:backend": "cp next.config.backend.mjs next.config.mjs && NEXT_BUILD_TARGET=backend next build",
-    "start": "next start",
+    "start": "node scripts/start_backend.mjs",
     "lint": "next lint",
-    "test": "vitest run",
+    "test": "npm run test:unit",
     "test:watch": "vitest",
     "test:unit": "vitest run --exclude tests/e2e",
     "test:unit:watch": "vitest --exclude tests/e2e",
-    "test:e2e": "vitest run --run tests/e2e",
+    "test:e2e": "node scripts/run_e2e.mjs",
+    "test:e2e:remote": "vitest run --run tests/e2e",
     "test:e2e:watch": "vitest --run tests/e2e",
     "test:coverage": "vitest run --coverage",
     "test:coverage:unit": "vitest run --coverage --exclude tests/e2e",
-    "test:ci": "vitest run --reporter=verbose --coverage"
+    "test:ci": "vitest run --reporter=verbose --coverage --exclude tests/e2e",
+    "prebuild:frontend": "npm run generate:indexes",
+    "prebuild:backend": "npm run generate:indexes"
   },
   "dependencies": {
     "@radix-ui/react-slot": "1.2.4",
@@ -61,6 +64,7 @@
     "remark-gfm": "4.0.1",
     "server-only": "0.0.1",
     "tailwind-merge": "3.4.0",
+    "web-vitals": "^4.2.4",
     "zod": "4.2.1"
   },
   "devDependencies": {

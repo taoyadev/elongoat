@@ -18,9 +18,20 @@ const nextConfig = {
     serverActions: {
       allowedOrigins: ["elongoat.io", "api.elongoat.io"],
     },
+    serverComponentsExternalPackages: ["drizzle-kit", "esbuild", "pg-native"],
   },
 
-  serverExternalPackages: ["drizzle-kit", "esbuild", "pg-native"],
+  // Bundle optimization
+  modularizeImports: {
+    "lucide-react": {
+      transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
+    },
+  },
+
+  // Compiler optimizations for production
+  compiler: {
+    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
+  },
 };
 
 export default nextConfig;

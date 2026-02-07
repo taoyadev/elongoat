@@ -14,6 +14,13 @@ const env = getEnv();
  * Check if Redis is enabled (REDIS_URL is set).
  */
 export function isRedisEnabled(): boolean {
+  // Never require Redis during Next.js build/export.
+  // Static generation should be deterministic and must not rely on external services.
+  const phase = process.env.NEXT_PHASE;
+  if (phase === "phase-production-build" || phase === "phase-export") {
+    return false;
+  }
+
   return !!env.REDIS_URL;
 }
 const REDIS_MAX_RETRIES = env.REDIS_MAX_RETRIES;
@@ -58,7 +65,7 @@ function createRedisInstance(): Redis {
     throw new Error("REDIS_URL is not defined");
   }
 
-  return new Redis(url, {
+  const client = new Redis(url, {
     lazyConnect: true,
     maxRetriesPerRequest: REDIS_MAX_RETRIES,
     enableReadyCheck: true,
@@ -78,6 +85,42 @@ function createRedisInstance(): Redis {
     // Connection name for monitoring
     connectionName: `elongoat-${process.pid}-${Date.now()}`,
   });
+
+  // IMPORTANT: ioredis emits "error" events that MUST be handled.
+  // Without a listener Node logs "Unhandled error event" and can terminate.
+  client.on("error", (error) => {
+    redisHealth = {
+      connected: false,
+      latency: null,
+      error: error instanceof Error ? error.message : String(error),
+      lastCheck: new Date().toISOString(),
+    };
+
+    // Avoid noisy logs in production/test; rely on /api/health metrics.
+    if (env.NODE_ENV === "development") {
+      logger.warn({ error }, "[Redis] Client error");
+    }
+  });
+
+  client.on("ready", () => {
+    redisHealth = {
+      connected: true,
+      latency: null,
+      error: null,
+      lastCheck: new Date().toISOString(),
+    };
+  });
+
+  client.on("end", () => {
+    redisHealth = {
+      connected: false,
+      latency: null,
+      error: redisHealth.error,
+      lastCheck: new Date().toISOString(),
+    };
+  });
+
+  return client;
 }
 
 /**
@@ -256,6 +299,110 @@ export async function mdel(keys: string[]): Promise<number> {
       logger.error({ error }, "[Redis] DEL error");
     }
     return 0;
+  }
+}
+
+/**
+ * Batch set multiple key-value pairs with TTL using pipeline.
+ * More efficient than individual SET commands for multiple keys.
+ */
+export async function msetWithTtl(
+  keyValuePairs: Record<string, string>,
+  ttlSeconds: number,
+): Promise<boolean> {
+  const redis = getRedis();
+  if (!redis) return false;
+
+  try {
+    await ensureRedisConnected(redis);
+    const pipeline = redis.pipeline();
+
+    for (const [key, value] of Object.entries(keyValuePairs)) {
+      pipeline.set(key, value, "EX", ttlSeconds);
+    }
+
+    await pipeline.exec();
+    return true;
+  } catch (error) {
+    if (env.NODE_ENV === "development") {
+      logger.error({ error }, "[Redis] MSET with TTL error");
+    }
+    return false;
+  }
+}
+
+/**
+ * Batch get and set operations in a single pipeline.
+ * Useful for cache-aside pattern with multiple keys.
+ */
+export async function batchGetOrSet<T>(
+  keys: string[],
+  fetchFn: (missingKeys: string[]) => Promise<Record<string, T>>,
+  ttlSeconds: number,
+): Promise<Record<string, T | null>> {
+  if (keys.length === 0) return {};
+
+  const redis = getRedis();
+  if (!redis) {
+    // Fallback: fetch all from source
+    const fetched = await fetchFn(keys);
+    return keys.reduce((acc, key) => {
+      acc[key] = fetched[key] ?? null;
+      return acc;
+    }, {} as Record<string, T | null>);
+  }
+
+  try {
+    await ensureRedisConnected(redis);
+
+    // Get all keys in one call
+    const cached = await redis.mget(...keys);
+    const result: Record<string, T | null> = {};
+    const missingKeys: string[] = [];
+
+    // Parse cached values and identify missing keys
+    keys.forEach((key, i) => {
+      const value = cached[i];
+      if (value) {
+        try {
+          result[key] = JSON.parse(value) as T;
+        } catch {
+          result[key] = null;
+          missingKeys.push(key);
+        }
+      } else {
+        result[key] = null;
+        missingKeys.push(key);
+      }
+    });
+
+    // Fetch missing keys from source
+    if (missingKeys.length > 0) {
+      const fetched = await fetchFn(missingKeys);
+      const pipeline = redis.pipeline();
+
+      for (const key of missingKeys) {
+        const value = fetched[key];
+        if (value !== undefined) {
+          result[key] = value;
+          pipeline.set(key, JSON.stringify(value), "EX", ttlSeconds);
+        }
+      }
+
+      await pipeline.exec();
+    }
+
+    return result;
+  } catch (error) {
+    if (env.NODE_ENV === "development") {
+      logger.error({ error }, "[Redis] Batch get or set error");
+    }
+    // Fallback: fetch all from source
+    const fetched = await fetchFn(keys);
+    return keys.reduce((acc, key) => {
+      acc[key] = fetched[key] ?? null;
+      return acc;
+    }, {} as Record<string, T | null>);
   }
 }
 

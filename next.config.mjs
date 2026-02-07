@@ -6,22 +6,32 @@ const nextConfig = {
     pagesBufferLength: 3,
   },
 
-  // Static export for Cloudflare Pages
-  output: "export",
+  // Standalone output for VPS Docker deployment
+  output: "standalone",
 
   env: {
-    NEXT_BUILD_TARGET: "export",
+    NEXT_BUILD_TARGET: "backend",
   },
 
-  // Trailing slash can cause API export path conflicts; disable for static export.
-  trailingSlash: false,
-
-  // Images: unoptimized for static export (or use remote patterns)
-  images: {
-    unoptimized: true,
+  // API routes enabled for backend
+  experimental: {
+    serverActions: {
+      allowedOrigins: ["elongoat.io", "api.elongoat.io"],
+    },
+    serverComponentsExternalPackages: ["drizzle-kit", "esbuild", "pg-native"],
   },
 
-  // Note: exportPathMap is not supported with the App Router.
+  // Bundle optimization
+  modularizeImports: {
+    "lucide-react": {
+      transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
+    },
+  },
+
+  // Compiler optimizations for production
+  compiler: {
+    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
+  },
 };
 
 export default nextConfig;

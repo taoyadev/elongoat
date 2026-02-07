@@ -52,6 +52,14 @@ const SITE_CONFIG = {
     "X/Twitter",
     "tech questions",
   ] as string[],
+  // SEO-optimized title templates for different page types
+  titleTemplates: {
+    topic: (topic: string) => `${topic} | Elon Musk Knowledge Hub`,
+    page: (page: string, topic: string) => `${page} - ${topic} | ElonGoat`,
+    qa: (question: string) => question.endsWith("?") ? question : `${question}?`,
+    video: (title: string) => `${title} | Elon Musk Video`,
+    fact: (title: string) => `${title} | Elon Musk Facts 2026`,
+  },
 } as const;
 
 /**
@@ -235,6 +243,7 @@ export async function generateHomeMetadata(): Promise<Metadata> {
 
 /**
  * Generate topic hub metadata
+ * Optimized for topical authority and sitelinks
  */
 export function generateTopicMetadata(params: {
   topic: string;
@@ -243,16 +252,29 @@ export function generateTopicMetadata(params: {
   totalVolume?: number;
 }): Metadata {
   const { topic, topicSlug, pageCount } = params;
-  const title = `${topic} — Topic Hub`;
-  const description = `Browse ${pageCount.toLocaleString()} pages in the "${topic}" topic hub. Explore keyword clusters and AI-generated answers about Elon Musk.`;
+  const currentYear = new Date().getFullYear();
+
+  // Use SEO-optimized title template
+  const title = SITE_CONFIG.titleTemplates.topic(topic);
+
+  // Create comprehensive description highlighting content depth
+  const description = `Complete ${topic} guide: ${pageCount.toLocaleString()} in-depth articles covering everything about Elon Musk and ${topic}. AI-powered insights updated ${currentYear}.`;
 
   return generateMetadata({
     title,
     description,
     path: `/${topicSlug}`,
     ogImage: `/og/topic/${topicSlug}`,
-    keywords: [topic, "topic hub", "Elon Musk"],
+    keywords: [
+      topic,
+      "topic hub",
+      "Elon Musk",
+      `${topic} ${currentYear}`,
+      `${topic} guide`,
+      `${topic} news`,
+    ],
     section: "Topics",
+    publishedTime: new Date().toISOString(),
   });
 }
 
@@ -364,6 +386,7 @@ export function generateVideosIndexMetadata(params: {
 
 /**
  * Generate keyword page metadata
+ * Optimized for search intent and click-through rate
  */
 export function generateClusterPageMetadata(params: {
   page: string;
@@ -374,22 +397,30 @@ export function generateClusterPageMetadata(params: {
   pageSlug: string;
 }): Metadata {
   const { page, topic, keywordCount, topicSlug, pageSlug } = params;
-  const title = `${page} — ${topic}`;
-  const description = `Explore "${page}" in ${topic}. ${keywordCount.toLocaleString()} related topics with AI chat and fresh sources.`;
+
+  // Use SEO-optimized title template
+  const title = SITE_CONFIG.titleTemplates.page(page, topic);
+
+  // Create compelling meta description with search intent signals
+  const currentYear = new Date().getFullYear();
+  const description = `${page} explained: comprehensive guide covering ${keywordCount.toLocaleString()} related topics. Updated ${currentYear}. Get AI-powered insights about ${topic} with verified sources.`;
 
   return generateMetadata({
     title,
     description,
     path: `/${topicSlug}/${pageSlug}`,
     ogType: "article",
-    keywords: [page, topic, "Elon Musk"],
+    keywords: [page, topic, "Elon Musk", `${page} ${currentYear}`, `${topic} guide`],
     section: topic,
-    tags: [page, topic],
+    tags: [page, topic, "knowledge base", "AI analysis"],
+    publishedTime: new Date().toISOString(),
+    modifiedTime: new Date().toISOString(),
   });
 }
 
 /**
  * Generate Q&A page metadata
+ * Optimized for featured snippets and FAQ rich results
  */
 export function generateQaMetadata(params: {
   question: string;
@@ -398,19 +429,33 @@ export function generateQaMetadata(params: {
   volume?: number;
 }): Metadata {
   const { question, answer, slug } = params;
-  const title = question;
-  const description =
-    answer?.slice(0, 140) ??
-    `Get answers to "${question}" on ElonGoat. AI-generated responses with sources and verification notes.`;
+
+  // Ensure question ends with question mark for better CTR
+  const title = SITE_CONFIG.titleTemplates.qa(question);
+
+  // Create answer-focused description for featured snippet optimization
+  const currentYear = new Date().getFullYear();
+  const answerPreview = answer?.slice(0, 120)?.replace(/\n/g, " ") ?? "";
+  const description = answerPreview
+    ? `${answerPreview}... Get the complete answer with AI-verified sources (${currentYear}).`
+    : `Get the definitive answer to "${question}" with AI-generated explanations, verification notes, and related questions.`;
 
   return generateMetadata({
     title,
     description,
     path: `/q/${slug}`,
     ogType: "article",
-    keywords: [question, "Q&A", "Elon Musk", "answer"],
+    keywords: [
+      question.replace(/\?/g, ""),
+      "Q&A",
+      "Elon Musk",
+      "answer",
+      "FAQ",
+      `${question.split(" ").slice(0, 3).join(" ")} ${currentYear}`,
+    ],
     section: "Q&A",
-    tags: ["Q&A", "question", "answer"],
+    tags: ["Q&A", "question", "answer", "FAQ", "Elon Musk"],
+    publishedTime: new Date().toISOString(),
   });
 }
 

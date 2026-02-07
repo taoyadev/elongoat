@@ -7,14 +7,73 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeSanitize from "rehype-sanitize";
 
 import { useChat } from "../hooks/useChat";
+
+// Lazy load heavy markdown dependencies
+const ReactMarkdown = lazy(() => import("react-markdown"));
+const remarkGfm = import("remark-gfm").then((mod) => mod.default);
+const rehypeSanitize = import("rehype-sanitize").then((mod) => mod.default);
+
+// Simple markdown fallback for initial render
+function SimpleMarkdown({ content }: { content: string }) {
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {content}
+    </div>
+  );
+}
+
+// Markdown wrapper with lazy loading
+function ChatMarkdown({ content }: { content: string }) {
+  const [plugins, setPlugins] = useState<{ remark: unknown[]; rehype: unknown[] }>({
+    remark: [],
+    rehype: [],
+  });
+
+  useEffect(() => {
+    Promise.all([remarkGfm, rehypeSanitize]).then(([remark, rehype]) => {
+      setPlugins({ remark: [remark], rehype: [rehype] });
+    });
+  }, []);
+
+  return (
+    <Suspense fallback={<SimpleMarkdown content={content} />}>
+      <ReactMarkdown
+        remarkPlugins={plugins.remark as never[]}
+        rehypePlugins={plugins.rehype as never[]}
+        components={{
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-2 hover:text-primary/80"
+            >
+              {children}
+            </a>
+          ),
+          code: ({ className, children }) => {
+            const match = /language-(\w+)/.exec(className || "");
+            const isInline = !match;
+            return isInline ? (
+              <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">
+                {children}
+              </code>
+            ) : (
+              <code className={className}>{children}</code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </Suspense>
+  );
+}
 
 const MAX_INPUT_CHARS = 2000;
 const TYPING_INDICATOR_DELAY = 600;
@@ -387,37 +446,7 @@ export function ChatWidget() {
                   >
                     {msg.role === "assistant" ? (
                       <div className="prose prose-invert prose-sm max-w-none break-words">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          rehypePlugins={[rehypeSanitize]}
-                          components={{
-                            a: ({ href, children }) => (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary underline underline-offset-2 hover:text-primary/80"
-                              >
-                                {children}
-                              </a>
-                            ),
-                            code: ({ className, children }) => {
-                              const match = /language-(\w+)/.exec(
-                                className || "",
-                              );
-                              const isInline = !match;
-                              return isInline ? (
-                                <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-xs">
-                                  {children}
-                                </code>
-                              ) : (
-                                <code className={className}>{children}</code>
-                              );
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                        <ChatMarkdown content={msg.content} />
                       </div>
                     ) : (
                       <div className="whitespace-pre-wrap break-words">

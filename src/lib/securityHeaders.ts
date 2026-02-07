@@ -59,9 +59,26 @@ function getApiOrigin(): string {
  * Get nonce for inline scripts (if using nonce-based CSP)
  */
 export function getNonce(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomBytes } = require("crypto");
-  return randomBytes(16).toString("base64");
+  const bytes = new Uint8Array(16);
+
+  // Edge runtime supports Web Crypto but not Node's `crypto` module.
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { randomBytes } = require("crypto") as typeof import("crypto");
+    bytes.set(randomBytes(16));
+  }
+
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 // ============================================================================

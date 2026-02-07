@@ -33,10 +33,12 @@ let poolInitialized = false;
 
 const DEFAULT_POOL_CONFIG: PoolConfig = {
   max: 10,
+  min: 2, // Keep minimum connections warm
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
   statement_timeout: 60000,
   query_timeout: 60000,
+  allowExitOnIdle: false, // Prevent pool from closing on idle in serverless
 };
 
 /**

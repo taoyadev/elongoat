@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -73,60 +74,99 @@ const TopListSchema = z.object({
 });
 
 function projectPath(...segments: string[]): string {
-  return path.join(process.cwd(), ...segments);
+  const candidates = [
+    path.join(process.cwd(), ...segments),
+    path.resolve(process.cwd(), "..", "..", ...segments),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
 }
 
-let clusterIndexCache: ClusterIndex | null = null;
-let paaIndexCache: PaaIndex | null = null;
-let topPagesCache: string[] | null = null;
-let topQuestionsCache: string[] | null = null;
+// Use Promise-based lazy loading for better concurrent access
+let clusterIndexPromise: Promise<ClusterIndex> | null = null;
+let paaIndexPromise: Promise<PaaIndex> | null = null;
+let topPagesPromise: Promise<string[]> | null = null;
+let topQuestionsPromise: Promise<string[]> | null = null;
+
+// Lookup maps for O(1) access
+let pagesBySlugMap: Map<string, ClusterPage> | null = null;
+let topicsBySlugMap: Map<string, ClusterTopic> | null = null;
+let questionsBySlugMap: Map<string, PaaQuestion> | null = null;
 
 async function readJsonFile(filePath: string): Promise<unknown> {
   const raw = await readFile(filePath, "utf-8");
   return JSON.parse(raw) as unknown;
 }
 
-export async function getClusterIndex(): Promise<ClusterIndex> {
-  if (clusterIndexCache) return clusterIndexCache;
+async function loadClusterIndex(): Promise<ClusterIndex> {
   const data = await readJsonFile(
     projectPath("data", "generated", "cluster-index.json"),
   );
-  clusterIndexCache = ClusterIndexSchema.parse(data);
-  return clusterIndexCache;
+  const index = ClusterIndexSchema.parse(data);
+
+  // Build lookup maps for O(1) access
+  pagesBySlugMap = new Map(index.pages.map((p) => [p.slug, p]));
+  topicsBySlugMap = new Map(index.topics.map((t) => [t.slug, t]));
+
+  return index;
 }
 
-export async function getPaaIndex(): Promise<PaaIndex> {
-  if (paaIndexCache) return paaIndexCache;
+export async function getClusterIndex(): Promise<ClusterIndex> {
+  if (!clusterIndexPromise) {
+    clusterIndexPromise = loadClusterIndex();
+  }
+  return clusterIndexPromise;
+}
+
+async function loadPaaIndex(): Promise<PaaIndex> {
   const data = await readJsonFile(
     projectPath("data", "generated", "paa-index.json"),
   );
-  paaIndexCache = PaaIndexSchema.parse(data);
-  return paaIndexCache;
+  const index = PaaIndexSchema.parse(data);
+
+  // Build lookup map for O(1) access
+  questionsBySlugMap = new Map(index.questions.map((q) => [q.slug, q]));
+
+  return index;
+}
+
+export async function getPaaIndex(): Promise<PaaIndex> {
+  if (!paaIndexPromise) {
+    paaIndexPromise = loadPaaIndex();
+  }
+  return paaIndexPromise;
 }
 
 export async function getTopPageSlugs(): Promise<string[]> {
-  if (topPagesCache) return topPagesCache;
-  const data = await readJsonFile(
-    projectPath("data", "generated", "top-pages.json"),
-  );
-  topPagesCache = TopListSchema.parse(data).slugs;
-  return topPagesCache;
+  if (!topPagesPromise) {
+    topPagesPromise = readJsonFile(
+      projectPath("data", "generated", "top-pages.json"),
+    ).then((data) => TopListSchema.parse(data).slugs);
+  }
+  return topPagesPromise;
 }
 
 export async function getTopQuestionSlugs(): Promise<string[]> {
-  if (topQuestionsCache) return topQuestionsCache;
-  const data = await readJsonFile(
-    projectPath("data", "generated", "top-questions.json"),
-  );
-  topQuestionsCache = TopListSchema.parse(data).slugs;
-  return topQuestionsCache;
+  if (!topQuestionsPromise) {
+    topQuestionsPromise = readJsonFile(
+      projectPath("data", "generated", "top-questions.json"),
+    ).then((data) => TopListSchema.parse(data).slugs);
+  }
+  return topQuestionsPromise;
 }
 
 export async function findTopic(
   topicSlug: string,
 ): Promise<ClusterTopic | null> {
-  const index = await getClusterIndex();
-  return index.topics.find((t) => t.slug === topicSlug) ?? null;
+  // Ensure index is loaded and maps are built
+  await getClusterIndex();
+  return topicsBySlugMap?.get(topicSlug) ?? null;
 }
 
 export async function listTopicPages(
@@ -142,14 +182,16 @@ export async function findPage(
   topicSlug: string,
   pageSlug: string,
 ): Promise<ClusterPage | null> {
-  const index = await getClusterIndex();
+  // Ensure index is loaded and maps are built
+  await getClusterIndex();
   const fullSlug = `${topicSlug}/${pageSlug}`;
-  return index.pages.find((p) => p.slug === fullSlug) ?? null;
+  return pagesBySlugMap?.get(fullSlug) ?? null;
 }
 
 export async function findPaaQuestion(
   slug: string,
 ): Promise<PaaQuestion | null> {
-  const index = await getPaaIndex();
-  return index.questions.find((q) => q.slug === slug) ?? null;
+  // Ensure index is loaded and maps are built
+  await getPaaIndex();
+  return questionsBySlugMap?.get(slug) ?? null;
 }

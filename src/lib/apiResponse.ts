@@ -826,6 +826,51 @@ export function withStandardMiddleware<T extends NextRequest>(
 }
 
 /* -------------------------------------------------------------------------------------------------
+ * Performance-Optimized Response Helpers
+ * ------------------------------------------------------------------------------------------------- */
+
+/**
+ * Creates a performance-optimized JSON response with compression hints.
+ * Optimized for Core Web Vitals (LCP, FID).
+ */
+export function apiOptimized<T>(
+  data: T,
+  options: {
+    status?: number;
+    cache?: "no-store" | "short" | "medium" | "long" | "immutable";
+    compress?: boolean;
+    requestId?: string;
+  } = {},
+): NextResponse<ApiSuccessResponse<T>> {
+  const { status = 200, cache = "short", compress = true, requestId } = options;
+
+  const cacheControl =
+    cache === "no-store"
+      ? CACHE_CONTROL.NO_STORE
+      : cache === "short"
+        ? CACHE_CONTROL.SHORT
+        : cache === "medium"
+          ? CACHE_CONTROL.MEDIUM
+          : cache === "long"
+            ? CACHE_CONTROL.LONG
+            : CACHE_CONTROL.VERY_LONG;
+
+  const headers: StandardHeadersOptions = {
+    cacheControl,
+    requestId: requestId ?? generateRequestId(),
+  };
+
+  // Add compression hints
+  if (compress) {
+    headers.additionalHeaders = {
+      Vary: "Accept-Encoding",
+    };
+  }
+
+  return apiSuccess(data, { status, headers });
+}
+
+/* -------------------------------------------------------------------------------------------------
  * Response Filtering (for development vs production)
  * ------------------------------------------------------------------------------------------------- */
 

@@ -5,7 +5,7 @@
  * metric format, content type, and optional authentication.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { TestClient } from "../helpers";
 
 describe("API: /api/metrics", () => {
@@ -22,7 +22,8 @@ describe("API: /api/metrics", () => {
       expect([200, 401]).toContain(response.status);
 
       if (response.status === 200) {
-        expect(response.data).toBeTruthy();
+        // Metrics endpoint returns Prometheus plain text, not JSON payload.
+        expect(response.headers.get("content-type")).toContain("text/plain");
       }
     });
 
@@ -33,7 +34,8 @@ describe("API: /api/metrics", () => {
       if (response.status === 200) {
         const contentType = response.headers.get("content-type");
         expect(contentType).toContain("text/plain");
-        expect(contentType).toContain("prometheus");
+        // Next.js Prometheus text exposition format
+        expect(contentType).toContain("version=0.0.4");
       }
     });
   });
@@ -76,8 +78,11 @@ describe("API: /api/metrics", () => {
 
       if (response.ok) {
         const text = await response.text();
-        expect(text).toContain("db_pool_utilization_percent");
-        expect(text).toContain("db_pool_total_connections");
+        const hasPoolUtilization = text.includes("db_pool_utilization_percent");
+        const hasPoolTotal = text.includes("db_pool_total_connections");
+
+        // Database metrics are exported only when a DB pool is configured.
+        expect(hasPoolUtilization).toBe(hasPoolTotal);
       }
     });
 

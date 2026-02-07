@@ -1,18 +1,52 @@
-# robots.txt - Static fallback for ElonGoat
+# robots.txt - ElonGoat SEO Configuration
 # Site: https://elongoat.io
-# Updated: 2025-01-01
+# Updated: 2026-02-06
 
-# Allow all crawlers by default
+# =============================================================================
+# Default Rules (All Search Engine Crawlers)
+# =============================================================================
 User-agent: *
 Allow: /
+Allow: /topics
+Allow: /q
+Allow: /facts
+Allow: /videos
+Allow: /tweets
+Allow: /writing
+Allow: /about
+Allow: /discover
+
+# Block non-content paths
 Disallow: /admin
 Disallow: /api/
 Disallow: /_next/
 Disallow: /static/
+Disallow: /search?*
+Disallow: /*?*sort=
+Disallow: /*?*filter=
+Disallow: /*?*page=
 
-# Note: Crawl-delay removed as Google/Bing ignore it
+# =============================================================================
+# Googlebot Specific (Enhanced Crawling)
+# =============================================================================
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
 
-# Block OpenAI crawlers (content protection)
+User-agent: Googlebot-Image
+Allow: /og-image.svg
+Allow: /logo.svg
+
+# =============================================================================
+# Bingbot Specific
+# =============================================================================
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# =============================================================================
+# AI Training Crawlers (Block to protect content)
+# =============================================================================
 User-agent: GPTBot
 Disallow: /
 
@@ -22,11 +56,39 @@ Disallow: /
 User-agent: CCBot
 Disallow: /
 
-# Allow Anthropic crawlers selectively (research/citation benefits)
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: YouBot
+Disallow: /
+
+# =============================================================================
+# Anthropic Crawlers (Allow for citation/research)
+# =============================================================================
 User-agent: anthropic-ai
 Allow: /topics
 Allow: /q
 Allow: /facts
+Allow: /writing
+Allow: /about
 Disallow: /admin
 Disallow: /api/
 Disallow: /x
@@ -36,23 +98,34 @@ User-agent: Claude-Web
 Allow: /topics
 Allow: /q
 Allow: /facts
+Allow: /writing
+Allow: /about
 Disallow: /admin
 Disallow: /api/
 Disallow: /x
 Disallow: /videos
 
-User-agent: Claude-Search
+User-agent: ClaudeBot
 Allow: /topics
 Allow: /q
 Allow: /facts
+Allow: /writing
+Allow: /about
 Disallow: /admin
 Disallow: /api/
 Disallow: /x
 Disallow: /videos
 
-# Google AI crawler
-User-agent: Google-Extended
-Disallow: /
-
-# Sitemap reference
+# =============================================================================
+# Sitemap References
+# =============================================================================
 Sitemap: https://elongoat.io/sitemap.xml
+Sitemap: https://elongoat.io/sitemaps/topics/sitemap.xml
+Sitemap: https://elongoat.io/sitemaps/qa/sitemap.xml
+Sitemap: https://elongoat.io/sitemaps/tweets/sitemap.xml
+Sitemap: https://elongoat.io/sitemaps/videos/sitemap.xml
+
+# =============================================================================
+# Host Directive (for Yandex)
+# =============================================================================
+Host: https://elongoat.io

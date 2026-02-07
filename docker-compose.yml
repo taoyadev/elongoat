@@ -44,7 +44,7 @@ services:
       - no-new-privileges:true
     read_only: ${READ_ONLY:-false}
     tmpfs:
-      - /tmp
+      - /tmp:size=100M,mode=1777
 
     # Environment variables
     environment:

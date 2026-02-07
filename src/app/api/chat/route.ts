@@ -416,8 +416,11 @@ export async function POST(req: NextRequest) {
           },
         );
       }
-    } catch {
-      // ignore cache errors
+    } catch (err) {
+      // Log cache errors for debugging but continue without cache
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[Chat] Cache read failed:", err);
+      }
     }
   }
 
@@ -472,8 +475,11 @@ export async function POST(req: NextRequest) {
         try {
           await redis.connect();
           await redis.set(cacheKey, fullText, "EX", 60 * 60 * 24);
-        } catch {
-          // ignore cache errors
+        } catch (err) {
+          // Log cache write errors but don't fail the response
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[Chat] Cache write failed:", err);
+          }
         }
       },
     });
@@ -487,7 +493,11 @@ export async function POST(req: NextRequest) {
         ...promptHeaders,
       },
     });
-  } catch {
+  } catch (err) {
+    // Log upstream errors for debugging
+    if (process.env.NODE_ENV === "development") {
+      console.error("[Chat] Upstream API error:", err);
+    }
     const fallback = interpolate(
       FALLBACK_RESPONSES.get(matchFallbackKey(message)) ??
         FALLBACK_RESPONSES.get("default")!,
